@@ -50,7 +50,7 @@ tests/                   # testthat unit tests
 ## Notes
 
 - Default cohort is `TCGA-UCEC`; change the `project` variable in `analysis.R` to analyze a different one.
-- Immune signature scoring uses a lightweight marker-gene z-score approach rather than a dedicated deconvolution tool (xCell/ConsensusTME), due to an Apple Silicon Bioconductor binary gap.
+- Immune signature scoring uses a lightweight marker-gene z-score approach rather than a dedicated deconvolution tool (xCell/ConsensusTME).
 
 ## Data source
 
