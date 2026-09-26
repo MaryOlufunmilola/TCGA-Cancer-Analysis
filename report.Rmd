@@ -1,0 +1,254 @@
+---
+title: "TCGA Cancer Analysis Report"
+subtitle: "`r params$project`"
+date: "`r format(Sys.Date(), '%B %d, %Y')`"
+output:
+  html_document:
+    theme: flatly
+    toc: true
+    toc_float: true
+    df_print: kable
+params:
+  project: "TCGA-UCEC"
+  results_dir: "results"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(dplyr)
+library(knitr)
+
+results_dir <- params$results_dir
+```
+
+This report assembles the outputs of `analysis.R` for **`r params$project`**
+into a single document: differential expression, pathway enrichment, immune
+signature scoring, and survival analysis.
+
+## Differential Expression
+
+```{r de-table}
+de_path <- file.path(results_dir, "differential_expression_results.csv")
+if (file.exists(de_path)) {
+  de <- read.csv(de_path)
+  de %>%
+    filter(!is.na(padj)) %>%
+    arrange(padj) %>%
+    head(20) %>%
+    select(gene_id, log2FoldChange, pvalue, padj) %>%
+    kable(digits = 4, caption = "Top 20 genes by adjusted p-value")
+} else {
+  cat("No differential expression results found. Run analysis.R first.")
+}
+```
+
+```{r volcano-plot}
+volcano_path <- file.path(results_dir, "volcano_plot.png")
+if (file.exists(volcano_path)) {
+  knitr::include_graphics(volcano_path)
+}
+```
+
+## HSPA (Hsp70) Gene Family
+
+```{r hspa-expression}
+hspa_de_path <- file.path(results_dir, "hspa_family_de_results.csv")
+if (file.exists(hspa_de_path)) {
+  hspa_de <- read.csv(hspa_de_path)
+
+  hspa_sig <- hspa_de %>% filter(change != "Not significant") %>% arrange(padj)
+
+  if (nrow(hspa_sig) > 0) {
+    hspa_sig %>%
+      select(gene_name, log2FoldChange, pvalue, padj, change) %>%
+      kable(
+        digits = 4,
+        caption = paste0(nrow(hspa_sig), " of ", nrow(hspa_de),
+                          " HSPA family genes reached significance (padj < 0.05, |log2FC| > log2(1.5))")
+      )
+  } else {
+    cat("No HSPA family genes reached significance in this cohort's DE results.")
+  }
+} else {
+  cat("HSPA expression check not yet run. See analysis.R.")
+}
+```
+
+<details>
+<summary>All 14 HSPA family genes (click to expand)</summary>
+
+```{r hspa-expression-full}
+if (file.exists(hspa_de_path)) {
+  hspa_de %>%
+    arrange(padj) %>%
+    select(gene_name, log2FoldChange, pvalue, padj, change) %>%
+    kable(digits = 4, caption = "All HSPA family genes found in this dataset")
+}
+```
+
+</details>
+
+```{r hspa-plot}
+hspa_plot_path <- file.path(results_dir, "hspa_family_plot.png")
+if (file.exists(hspa_plot_path)) {
+  knitr::include_graphics(hspa_plot_path)
+}
+```
+
+```{r hspa-mutations}
+hspa_mut_path <- file.path(results_dir, "hspa_mutation_frequency.csv")
+if (file.exists(hspa_mut_path)) {
+  hspa_mut <- read.csv(hspa_mut_path)
+  if (nrow(hspa_mut) > 0) {
+    kable(hspa_mut, caption = "HSPA family genes: mutation frequency in this cohort")
+  } else {
+    cat("No HSPA family gene mutations found in this cohort.")
+  }
+} else {
+  cat("HSPA mutation check not yet run. See mutation_analysis.R.")
+}
+```
+
+```{r hspa-oncoplot}
+hspa_onco_path <- file.path(results_dir, "hspa_oncoplot.png")
+if (file.exists(hspa_onco_path)) {
+  knitr::include_graphics(hspa_onco_path)
+}
+```
+
+### HSPA Survival Analysis
+
+```{r hspa-survival-table}
+hspa_surv_path <- file.path(results_dir, "hspa_survival_results.csv")
+if (file.exists(hspa_surv_path)) {
+  hspa_surv <- read.csv(hspa_surv_path)
+  kable(hspa_surv, digits = 4, caption = "HSPA genes: log-rank survival test (High vs. Low expression)")
+} else {
+  cat("HSPA survival analysis not yet run.")
+}
+```
+
+### HSPA Expression by TCGA Molecular Subtype
+
+```{r hspa-subtype-plot}
+subtype_plot_path <- file.path(results_dir, "hspa_by_subtype_plot.png")
+if (file.exists(subtype_plot_path)) {
+  knitr::include_graphics(subtype_plot_path)
+} else {
+  cat("HSPA-by-subtype analysis not yet run or no subtype data available for this cohort.")
+}
+```
+
+
+## Pathway Enrichment (GSEA, Hallmark Gene Sets)
+
+```{r gsea-table}
+gsea_path <- file.path(results_dir, "gsea_hallmark_results.csv")
+if (file.exists(gsea_path)) {
+  gsea <- read.csv(gsea_path)
+  n_sig <- sum(gsea$padj < 0.05, na.rm = TRUE)
+
+  if (n_sig > 0) {
+    gsea %>%
+      filter(padj < 0.05) %>%
+      arrange(padj) %>%
+      select(pathway, NES, padj, size) %>%
+      kable(digits = 4, caption = paste(n_sig, "significantly enriched pathways (padj < 0.05)"))
+  } else {
+    cat(
+      "No pathways reached significance at padj < 0.05 for this comparison. ",
+      "Below are the top 10 pathways by absolute NES regardless of significance."
+    )
+    gsea %>%
+      arrange(desc(abs(NES))) %>%
+      head(10) %>%
+      select(pathway, NES, padj, size) %>%
+      kable(digits = 4, caption = "Top 10 by NES (not statistically significant)")
+  }
+}
+```
+
+```{r gsea-plot}
+gsea_plot_path <- file.path(results_dir, "gsea_hallmark_plot.png")
+if (file.exists(gsea_plot_path)) {
+  knitr::include_graphics(gsea_plot_path)
+} else {
+  cat("No GSEA plot available (likely no pathways passed the significance threshold used for plotting).")
+}
+```
+
+## Immune Signature Scoring
+
+Mean marker-gene z-score across samples for major immune and stromal cell
+populations. 
+
+```{r immune-heatmap}
+immune_heatmap_path <- file.path(results_dir, "immune_signature_heatmap.png")
+if (file.exists(immune_heatmap_path)) {
+  knitr::include_graphics(immune_heatmap_path)
+}
+```
+
+```{r immune-table}
+immune_path <- file.path(results_dir, "immune_signature_scores.csv")
+if (file.exists(immune_path)) {
+  immune <- read.csv(immune_path)
+  head(immune, 10) %>%
+    kable(digits = 2, caption = "Immune signature scores, first 10 samples")
+}
+```
+
+## Survival Analysis
+
+Kaplan-Meier survival stratified on the top differentially expressed gene.
+
+```{r survival-plot}
+survival_path <- file.path(results_dir, "survival_km_plot.png")
+if (file.exists(survival_path)) {
+  knitr::include_graphics(survival_path)
+} else {
+  cat("No survival plot available.")
+}
+```
+
+## Immune-hot vs. Immune-cold Classification
+
+Uses the Epithelial signature score against the T cell signature score, to classify
+each sample's immune context.
+
+```{r hot-cold-plot}
+hot_cold_path <- file.path(results_dir, "immune_hot_cold_plot.png")
+if (file.exists(hot_cold_path)) {
+  knitr::include_graphics(hot_cold_path)
+}
+```
+
+## Mutation / Tumor Mutational Burden
+
+```{r mutation-section}
+tmb_path <- file.path(results_dir, "tmb_summary.csv")
+if (file.exists(tmb_path)) {
+  tmb <- read.csv(tmb_path)
+  head(tmb, 10) %>%
+    kable(digits = 2, caption = "Tumor mutational burden, first 10 samples")
+} else {
+  cat("Mutation analysis not yet run. See mutation_analysis.R.")
+}
+```
+
+```{r oncoplot}
+oncoplot_path <- file.path(results_dir, "oncoplot.png")
+if (file.exists(oncoplot_path)) {
+  knitr::include_graphics(oncoplot_path)
+}
+```
+
+```{r tmb-immune-correlation}
+corr_path <- file.path(results_dir, "tmb_immune_correlation.png")
+if (file.exists(corr_path)) {
+  knitr::include_graphics(corr_path)
+}
+```
+
+---
+

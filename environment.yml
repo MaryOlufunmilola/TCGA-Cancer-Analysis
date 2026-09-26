@@ -1,0 +1,25 @@
+name: tcga-cancer-analysis
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - r-base=4.4
+  - bioconductor-tcgabiolinks
+  - bioconductor-summarizedexperiment
+  - bioconductor-deseq2
+  - bioconductor-fgsea
+  - r-survival
+  - r-survminer
+  - r-dplyr
+  - r-tidyr
+  - r-ggplot2
+  - r-ggrepel
+  - r-tibble
+  - r-pheatmap
+  - r-msigdbr
+  - r-nnls
+  - r-testthat
+  - r-rmarkdown
+  - r-knitr
+  - r-biocmanager
+

@@ -1,0 +1,14 @@
+# Data and outputs should never be committed.
+data/
+results/
+Detailed/
+run_log*.txt
+MANIFEST.txt
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# OS
+.DS_Store
