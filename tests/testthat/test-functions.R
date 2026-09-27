@@ -184,14 +184,21 @@ test_that("get_hallmark_sets reads a local GMT file when present", {
 })
 
 test_that("get_hallmark_sets falls back to remote fetcher when local file absent", {
-  fake_remote <- function() list("FAKE_SET" = c("GENEX", "GENEY"))
+  tmp_gmt <- tempfile(fileext = ".gmt")
+
+  fake_remote <- function() {
+    list("FAKE_SET" = c("GENEX", "GENEY"))
+  }
 
   result <- get_hallmark_sets(
-    "/nonexistent/path/does_not_exist.gmt",
+    tmp_gmt,
     remote_fetcher = fake_remote
   )
 
   expect_equal(result, list("FAKE_SET" = c("GENEX", "GENEY")))
+  expect_true(file.exists(tmp_gmt))
+
+  unlink(tmp_gmt)
 })
 
 test_that("get_hallmark_sets retries on remote failure and eventually errors", {
