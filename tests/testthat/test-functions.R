@@ -1,47 +1,67 @@
 source(testthat::test_path("..", "..", "R", "functions.R"))
 
-# determine_group()
+# determine_group() and determine_proliferation_group()
+# NOTE: an earlier version of determine_group() took an expr_mat argument
+# and silently fell back to an MKI67-based split when too few normals were
+# present. That fallback was split out into a separate function
+# (determine_proliferation_group()) -- see review point 2 -- so the tests
+# below are rewritten to match the current, narrower signature and behavior.
 
 test_that("determine_group uses tumor vs normal when enough normals present", {
   sample_types <- c("01", "01", "01", "11", "11", "11")
-  expr_mat <- matrix(rnorm(6 * 10), nrow = 10, ncol = 6)
-  colnames(expr_mat) <- paste0("sample", 1:6)
 
-  result <- determine_group(sample_types, expr_mat, min_normal = 3)
+  result <- determine_group(sample_types, min_normal = 3)
 
   expect_equal(as.character(result), c("tumor", "tumor", "tumor", "normal", "normal", "normal"))
   expect_s3_class(result, "factor")
 })
 
-test_that("determine_group falls back to expression split when too few normals", {
+test_that("determine_group returns all-NA with a warning when too few normals", {
   sample_types <- c("01", "01", "01", "01", "11")  # only 1 normal
-  expr_mat <- matrix(0, nrow = 2, ncol = 5)
-  rownames(expr_mat) <- c("MKI67", "OTHER")
-  expr_mat["MKI67", ] <- c(10, 8, 2, 1, 5)  # median = 5
 
-  result <- determine_group(sample_types, expr_mat, min_normal = 3)
-
-  # marker_expr = c(10, 8, 2, 1, 5), median = 5; the function uses a strict
-  # > comparison, so the value exactly equal to the median (index 5) is
-  # correctly "low", not "high".
-  expect_equal(as.character(result), c("high", "high", "low", "low", "low"))
+  expect_warning(
+    result <- determine_group(sample_types, min_normal = 3),
+    "Only 1 normal sample"
+  )
+  expect_true(all(is.na(result)))
+  expect_equal(length(result), length(sample_types))
 })
 
-test_that("determine_group falls back to colMeans when marker gene absent", {
-  sample_types <- c("01", "01", "11")  # too few normals
+test_that("determine_group excludes sample types other than 01/11", {
+  sample_types <- c("01", "11", "06")  # "06" = metastatic, should become NA
+
+  result <- determine_group(sample_types, min_normal = 1)
+
+  expect_equal(as.character(result), c("tumor", "normal", NA))
+})
+
+test_that("determine_proliferation_group splits primary tumors on the marker gene median", {
+  sample_types <- c("01", "01", "01", "01", "11")  # last one is a normal, should get NA
+  expr_mat <- matrix(0, nrow = 1, ncol = 5, dimnames = list("MKI67", NULL))
+  expr_mat["MKI67", ] <- c(10, 8, 2, 1, 999)  # median among tumors (10,8,2,1) = 5
+
+  result <- determine_proliferation_group(sample_types, expr_mat)
+
+  expect_equal(as.character(result), c("high", "high", "low", "low", NA))
+})
+
+test_that("determine_proliferation_group falls back to colMeans when marker gene absent", {
+  sample_types <- c("01", "01", "11")
   expr_mat <- matrix(c(1, 1, 9, 9, 1, 1), nrow = 2, ncol = 3)
   rownames(expr_mat) <- c("GENE_A", "GENE_B")  # no MKI67 present
 
-  result <- determine_group(sample_types, expr_mat, min_normal = 5)
-
-  expect_true(all(as.character(result) %in% c("high", "low")))
+  expect_warning(
+    result <- determine_proliferation_group(sample_types, expr_mat),
+    "not found"
+  )
+  expect_true(all(as.character(result)[sample_types == "01"] %in% c("high", "low")))
 })
 
-test_that("determine_group errors on mismatched lengths", {
+test_that("determine_proliferation_group errors on mismatched lengths", {
   sample_types <- c("01", "01", "11")
   expr_mat <- matrix(0, nrow = 2, ncol = 5)  # 5 columns, only 3 sample types
 
-  expect_error(determine_group(sample_types, expr_mat))
+  expect_error(determine_proliferation_group(sample_types, expr_mat))
 })
 
 # score_immune_signatures()
@@ -81,6 +101,60 @@ test_that("score_immune_signatures output has one row per sample", {
 
   expect_equal(nrow(scores), 4)
   expect_equal(ncol(scores), 2)
+})
+
+test_that("score_immune_signatures handles a zero-variance gene without producing NaN scores", {
+  log_counts <- matrix(rnorm(20), nrow = 5, ncol = 4)
+  rownames(log_counts) <- paste0("gene", 1:5)
+  colnames(log_counts) <- paste0("sample", 1:4)
+  log_counts["gene1", ] <- 5  # identical in every sample -> zero variance -> NaN from scale()
+
+  marker_sets <- list("A" = c("gene1", "gene2"))  # gene1 (zero-var) + gene2 (real variance)
+
+  expect_message(
+    scores <- score_immune_signatures(log_counts, marker_sets),
+    "zero-variance gene"
+  )
+  # na.rm = TRUE in the underlying colMeans should mean the score is still a
+  # real number (from gene2 alone), not NaN just because gene1 is degenerate.
+  expect_true(all(!is.nan(scores[, "A"])))
+})
+
+# fit_survival_models() -- proportional hazards check
+
+test_that("fit_survival_models includes a cox.zph proportional-hazards p-value", {
+  set.seed(1)
+  n <- 60
+  surv_df <- data.frame(
+    time = rexp(n, rate = 0.01),
+    event = rbinom(n, 1, 0.7),
+    expr = rnorm(n),
+    expr_group = factor(sample(c("Low", "High"), n, replace = TRUE), levels = c("Low", "High"))
+  )
+
+  result <- fit_survival_models(surv_df)
+
+  expect_true("cox_zph_p" %in% colnames(result))
+  expect_true(is.na(result$cox_zph_p) || (result$cox_zph_p >= 0 && result$cox_zph_p <= 1))
+})
+
+# pick_subtype_columns() -- explicit-first selection
+
+test_that("pick_subtype_columns uses the explicit preferred column when present", {
+  cols <- c("patient", "Subtype_Integrative", "some_other_cluster_col")
+
+  result <- pick_subtype_columns(cols, preferred_subtype_col = "Subtype_Integrative")
+
+  expect_equal(result$subtype, "Subtype_Integrative")
+  expect_equal(result$patient, "patient")
+})
+
+test_that("pick_subtype_columns falls back to auto-detection when the preferred column is absent", {
+  cols <- c("patient", "Some_Other_Subtype_Field")
+
+  result <- pick_subtype_columns(cols, preferred_subtype_col = "Subtype_Integrative")
+
+  expect_equal(result$subtype, "Some_Other_Subtype_Field")
 })
 
 # get_hallmark_sets()

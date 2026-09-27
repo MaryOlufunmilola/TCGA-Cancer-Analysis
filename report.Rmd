@@ -19,6 +19,9 @@ library(dplyr)
 library(knitr)
 
 results_dir <- params$results_dir
+
+# Display p-values in scientific notation instead of rounding them to 0
+fmt_p <- function(p) ifelse(is.na(p), NA, formatC(p, format = "e", digits = 2))
 ```
 
 This report assembles the outputs of `analysis.R` for **`r params$project`**
@@ -27,16 +30,32 @@ signature scoring, and survival analysis.
 
 ## Differential Expression
 
-```{r de-table}
+```{r de-summary, results = "asis"}
 de_path <- file.path(results_dir, "differential_expression_results.csv")
 if (file.exists(de_path)) {
   de <- read.csv(de_path)
+  n_up <- sum(de$change == "Up"); n_down <- sum(de$change == "Down")
+  n_wald <- sum(!is.na(de$wald_padj) & de$wald_padj < 0.05)
+  cat(n_up + n_down, " genes (", n_up, " up, ", n_down, " down) have |log2FC| significantly above ",
+      "log2(1.5). For comparison, the conventional LFC = 0 test calls ", n_wald, " genes significant.\n",
+      sep = "")
+}
+```
+
+```{r de-table}
+if (file.exists(de_path)) {
   de %>%
     filter(!is.na(padj)) %>%
     arrange(padj) %>%
     head(20) %>%
-    select(gene_id, log2FoldChange, pvalue, padj) %>%
-    kable(digits = 4, caption = "Top 20 genes by adjusted p-value")
+    mutate(pvalue = fmt_p(pvalue), padj = fmt_p(padj)) %>%
+    select(gene_name, gene_id, log2FoldChange, log2FoldChange_shrunk, pvalue, padj) %>%
+    kable(digits = 3, caption = paste(
+      "Top 20 genes by adjusted p-value. p-values test H0: |log2FC| <= log2(1.5) (DESeq2 lfcThreshold),",
+      "so padj < 0.05 means the fold change significantly exceeds 1.5x. Positive log2FC = higher in tumor",
+      "(or MKI67-high for the fallback split). Shrunken values use apeglm on the original counts, so for",
+      "genes with outlier samples they can differ from the tested estimate (e.g. HSPA6)."
+    ))
 } else {
   cat("No differential expression results found. Run analysis.R first.")
 }
@@ -46,6 +65,43 @@ if (file.exists(de_path)) {
 volcano_path <- file.path(results_dir, "volcano_plot.png")
 if (file.exists(volcano_path)) {
   knitr::include_graphics(volcano_path)
+}
+```
+
+## Matched-Pair Sensitivity Analysis
+
+The primary differential expression analysis above uses an **unpaired** design
+(every tumor and normal sample treated as an independent observation), since
+it lets every available sample contribute rather than only the smaller subset
+of patients with both a tumor and a matched normal. This section fits a **separate,
+secondary** model (`~ patient + group`) on just the matched-pair subset, as a
+check on whether the primary analysis's top genes hold up once patient
+identity is properly accounted for.
+
+```{r paired-sensitivity, results = "asis"}
+paired_comp_path <- file.path(results_dir, "paired_sensitivity_comparison.csv")
+if (file.exists(paired_comp_path)) {
+  paired_comp <- read.csv(paired_comp_path)
+  lfc_cor <- cor(paired_comp$primary_lfc, paired_comp$paired_lfc, method = "spearman")
+  primary_sig <- paired_comp[!is.na(paired_comp$primary_padj) & paired_comp$primary_padj < 0.05, ]
+  pct_still_sig <- if (nrow(primary_sig) > 0) {
+    100 * mean(!is.na(primary_sig$paired_padj) & primary_sig$paired_padj < 0.05)
+  } else NA
+
+  cat(
+    "Spearman correlation between primary and paired log2 fold changes: ", round(lfc_cor, 3), ". ",
+    round(pct_still_sig, 1), "% of the primary analysis's significant genes remain significant ",
+    "(padj < 0.05) in the paired model.\n", sep = ""
+  )
+
+  paired_comp %>%
+    filter(!is.na(primary_padj) & primary_padj < 0.05) %>%
+    arrange(primary_padj) %>%
+    head(20) %>%
+    mutate(primary_padj = fmt_p(primary_padj), paired_padj = fmt_p(paired_padj)) %>%
+    kable(digits = 3, caption = "Primary analysis's top 20 significant genes: log2FC and padj in both models")
+} else {
+  cat("Matched-pair sensitivity analysis not run (too few patients had both a tumor and matched normal sample, or the comparison isn't a tumor-vs-normal one).")
 }
 ```
 
@@ -60,11 +116,12 @@ if (file.exists(hspa_de_path)) {
 
   if (nrow(hspa_sig) > 0) {
     hspa_sig %>%
-      select(gene_name, log2FoldChange, pvalue, padj, change) %>%
+      mutate(pvalue = fmt_p(pvalue), padj = fmt_p(padj)) %>%
+      select(gene_name, log2FoldChange, log2FoldChange_shrunk, pvalue, padj, change) %>%
       kable(
         digits = 4,
         caption = paste0(nrow(hspa_sig), " of ", nrow(hspa_de),
-                          " HSPA family genes reached significance (padj < 0.05, |log2FC| > log2(1.5))")
+                          " HSPA family genes have |log2FC| significantly > log2(1.5) (threshold-test padj < 0.05)")
       )
   } else {
     cat("No HSPA family genes reached significance in this cohort's DE results.")
@@ -81,7 +138,8 @@ if (file.exists(hspa_de_path)) {
 if (file.exists(hspa_de_path)) {
   hspa_de %>%
     arrange(padj) %>%
-    select(gene_name, log2FoldChange, pvalue, padj, change) %>%
+    mutate(pvalue = fmt_p(pvalue), padj = fmt_p(padj)) %>%
+    select(gene_name, log2FoldChange, log2FoldChange_shrunk, pvalue, padj, change) %>%
     kable(digits = 4, caption = "All HSPA family genes found in this dataset")
 }
 ```
@@ -100,7 +158,10 @@ hspa_mut_path <- file.path(results_dir, "hspa_mutation_frequency.csv")
 if (file.exists(hspa_mut_path)) {
   hspa_mut <- read.csv(hspa_mut_path)
   if (nrow(hspa_mut) > 0) {
-    kable(hspa_mut, caption = "HSPA family genes: mutation frequency in this cohort")
+    kable(hspa_mut, caption = paste(
+      "HSPA family genes: mutation frequency in this cohort.",
+      "pct_tumors_mutated = MutatedSamples / tumors_assessed x 100."
+    ))
   } else {
     cat("No HSPA family gene mutations found in this cohort.")
   }
@@ -122,7 +183,15 @@ if (file.exists(hspa_onco_path)) {
 hspa_surv_path <- file.path(results_dir, "hspa_survival_results.csv")
 if (file.exists(hspa_surv_path)) {
   hspa_surv <- read.csv(hspa_surv_path)
-  kable(hspa_surv, digits = 4, caption = "HSPA genes: log-rank survival test (High vs. Low expression)")
+  hspa_surv %>%
+    select(gene_name, n, n_events, cox_hr_per_sd, cox_p, cox_padj, cox_zph_p,
+           adj_cox_hr_per_sd, adj_cox_p, adj_cox_padj, adj_cox_zph_p, logrank_p, logrank_padj) %>%
+    kable(digits = 3, caption = paste(
+      "HSPA genes, primary tumors: Cox HR per SD of VST expression (unadjusted and stage-adjusted where",
+      "stage was available) and median-split log-rank test. padj = BH across HSPA genes tested.",
+      "cox_zph_p / adj_cox_zph_p = proportional-hazards check (cox.zph global p); p < 0.05 means the",
+      "constant-hazard-ratio assumption is questionable for that model, and the HR should be read with that caveat."
+    ))
 } else {
   cat("HSPA survival analysis not yet run.")
 }
@@ -135,7 +204,28 @@ subtype_plot_path <- file.path(results_dir, "hspa_by_subtype_plot.png")
 if (file.exists(subtype_plot_path)) {
   knitr::include_graphics(subtype_plot_path)
 } else {
-  cat("HSPA-by-subtype analysis not yet run or no subtype data available for this cohort.")
+  cat("HSPA-by-subtype analysis not yet run, no significant HSPA genes, or no subtype data for this cohort.")
+}
+```
+
+```{r subtype-coverage}
+cov_path <- file.path(results_dir, "subtype_coverage.csv")
+if (file.exists(cov_path)) {
+  read.csv(cov_path) %>%
+    kable(caption = paste(
+      "Molecular subtype coverage (primary tumors). Subtypes come from the 2013 TCGA marker paper;",
+      "'Not assigned' tumors lacked data for integrative clustering and are a mixed group, not a subtype."
+    ))
+}
+```
+
+```{r hspa-subtype-kruskal}
+kw_path <- file.path(results_dir, "hspa_subtype_kruskal.csv")
+if (file.exists(kw_path)) {
+  read.csv(kw_path) %>%
+    arrange(kruskal_p) %>%
+    mutate(kruskal_p = fmt_p(kruskal_p), kruskal_padj = fmt_p(kruskal_padj)) %>%
+    kable(caption = "Kruskal-Wallis test of expression across assigned subtypes ('Not assigned' excluded), BH-corrected across genes")
 }
 ```
 
@@ -152,8 +242,9 @@ if (file.exists(gsea_path)) {
     gsea %>%
       filter(padj < 0.05) %>%
       arrange(padj) %>%
+      mutate(padj = fmt_p(padj)) %>%
       select(pathway, NES, padj, size) %>%
-      kable(digits = 4, caption = paste(n_sig, "significantly enriched pathways (padj < 0.05)"))
+      kable(digits = 3, caption = paste(n_sig, "significantly enriched pathways (padj < 0.05)"))
   } else {
     cat(
       "No pathways reached significance at padj < 0.05 for this comparison. ",
@@ -162,8 +253,9 @@ if (file.exists(gsea_path)) {
     gsea %>%
       arrange(desc(abs(NES))) %>%
       head(10) %>%
+      mutate(padj = fmt_p(padj)) %>%
       select(pathway, NES, padj, size) %>%
-      kable(digits = 4, caption = "Top 10 by NES (not statistically significant)")
+      kable(digits = 3, caption = "Top 10 by NES (not statistically significant)")
   }
 }
 ```
@@ -179,8 +271,8 @@ if (file.exists(gsea_plot_path)) {
 
 ## Immune Signature Scoring
 
-Mean marker-gene z-score across samples for major immune and stromal cell
-populations. 
+Mean marker-gene z-score (VST expression) for major immune populations and the
+Ayers IFN-gamma signature, computed across primary tumors only.
 
 ```{r immune-heatmap}
 immune_heatmap_path <- file.path(results_dir, "immune_signature_heatmap.png")
@@ -200,7 +292,22 @@ if (file.exists(immune_path)) {
 
 ## Survival Analysis
 
-Kaplan-Meier survival stratified on the top differentially expressed gene.
+Exploratory: Kaplan-Meier curves (median split) and Cox models (continuous
+expression) for the top differentially expressed gene, in primary tumors with
+one sample per patient. Being differentially expressed versus normal tissue does
+not imply prognostic value, so treat this as hypothesis-generating.
+
+```{r survival-table}
+top_surv_path <- file.path(results_dir, "survival_top_gene_results.csv")
+if (file.exists(top_surv_path)) {
+  read.csv(top_surv_path) %>%
+    select(gene_name, n, n_events, cox_hr_per_sd, cox_p, cox_zph_p, adj_cox_hr_per_sd, adj_cox_p, adj_cox_zph_p, logrank_p) %>%
+    kable(digits = 3, caption = paste(
+      "Top DE gene: survival statistics. cox_zph_p / adj_cox_zph_p = proportional-hazards check",
+      "(cox.zph global p); p < 0.05 flags that the constant-hazard-ratio assumption is questionable."
+    ))
+}
+```
 
 ```{r survival-plot}
 survival_path <- file.path(results_dir, "survival_km_plot.png")
@@ -213,8 +320,18 @@ if (file.exists(survival_path)) {
 
 ## Immune-hot vs. Immune-cold Classification
 
-Uses the Epithelial signature score against the T cell signature score, to classify
-each sample's immune context.
+Tumors are split into tertiles of the Ayers 6-gene IFN-gamma signature
+(IFNG, STAT1, IDO1, CXCL9, CXCL10, HLA-DRA): top tertile = immune-hot, bottom =
+immune-cold. The classes are relative to this cohort, not absolute thresholds.
+
+```{r hot-cold-table}
+if (file.exists(immune_path)) {
+  read.csv(immune_path) %>%
+    mutate(hot_cold = factor(hot_cold, levels = c("Immune-cold", "Intermediate", "Immune-hot"))) %>%
+    count(hot_cold, name = "n_tumors") %>%
+    kable(caption = "Tumors per immune class")
+}
+```
 
 ```{r hot-cold-plot}
 hot_cold_path <- file.path(results_dir, "immune_hot_cold_plot.png")
@@ -229,8 +346,14 @@ if (file.exists(hot_cold_path)) {
 tmb_path <- file.path(results_dir, "tmb_summary.csv")
 if (file.exists(tmb_path)) {
   tmb <- read.csv(tmb_path)
-  head(tmb, 10) %>%
-    kable(digits = 2, caption = "Tumor mutational burden, first 10 samples")
+  tmb %>%
+    summarise(
+      n_samples = n(),
+      median_per_Mb = median(total_perMB),
+      q90_per_Mb = quantile(total_perMB, 0.9),
+      n_over_10_per_Mb = sum(total_perMB > 10)
+    ) %>%
+    kable(digits = 2, caption = "Tumor mutational burden summary (38 Mb capture size assumed)")
 } else {
   cat("Mutation analysis not yet run. See mutation_analysis.R.")
 }
@@ -247,6 +370,46 @@ if (file.exists(oncoplot_path)) {
 corr_path <- file.path(results_dir, "tmb_immune_correlation.png")
 if (file.exists(corr_path)) {
   knitr::include_graphics(corr_path)
+}
+```
+
+### TMB and Immune Context by Molecular Subtype
+
+The pooled TMB-immune correlation mixes differences *between* subtypes (POLE and
+MSI tumors carry most of the high-TMB tail) with any relationship *within* a
+subtype. The table below tests the association separately in each assigned
+subtype. 
+
+```{r tmb-subtype-table}
+sub_cor_path <- file.path(results_dir, "tmb_immune_subtype_correlation.csv")
+if (file.exists(sub_cor_path)) {
+  read.csv(sub_cor_path) %>%
+    mutate(spearman_p = fmt_p(spearman_p), spearman_padj = fmt_p(spearman_padj)) %>%
+    kable(digits = 2, caption = "TMB vs. T cell signature within each assigned subtype (Spearman; >= 10 tumors; BH across subtypes; 'Not assigned' excluded)")
+} else {
+  cat("Subtype-level TMB analysis not available (run mutation_analysis.R; requires subtype data).")
+}
+```
+
+```{r tmb-subtype-plot}
+sub_plot_path <- file.path(results_dir, "tmb_immune_by_subtype.png")
+if (file.exists(sub_plot_path)) {
+  knitr::include_graphics(sub_plot_path)
+}
+```
+
+```{r class-by-subtype}
+class_sub_path <- file.path(results_dir, "immune_class_by_subtype.csv")
+if (file.exists(class_sub_path)) {
+  read.csv(class_sub_path) %>%
+    mutate(
+      hot_cold = factor(hot_cold, levels = c("Immune-cold", "Intermediate", "Immune-hot")),
+      cell = paste0(n, " (", round(100 * fraction), "%)")
+    ) %>%
+    arrange(hot_cold) %>%
+    select(molecular_subtype, hot_cold, cell) %>%
+    tidyr::pivot_wider(names_from = hot_cold, values_from = cell) %>%
+    kable(caption = "Immune class (IFN-gamma tertiles) by molecular subtype: n (% of subtype)")
 }
 ```
 
