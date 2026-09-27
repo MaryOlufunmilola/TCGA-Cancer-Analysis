@@ -202,7 +202,9 @@ test_that("get_hallmark_sets falls back to remote fetcher when local file absent
 })
 
 test_that("get_hallmark_sets retries on remote failure and eventually errors", {
+  tmp_gmt <- tempfile(fileext = ".gmt")
   attempt_count <- 0
+
   always_fails <- function() {
     attempt_count <<- attempt_count + 1
     stop("simulated network failure")
@@ -210,12 +212,15 @@ test_that("get_hallmark_sets retries on remote failure and eventually errors", {
 
   expect_error(
     get_hallmark_sets(
-      "/nonexistent/path.gmt",
+      tmp_gmt,
       max_attempts = 2,
       pause_seconds = 0,
       remote_fetcher = always_fails
     ),
     "Could not obtain MSigDB Hallmark gene sets"
   )
+
   expect_equal(attempt_count, 2)
+
+  unlink(tmp_gmt)
 })
