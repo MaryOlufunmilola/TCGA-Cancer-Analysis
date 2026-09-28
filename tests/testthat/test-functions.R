@@ -1,11 +1,6 @@
 source(testthat::test_path("..", "..", "R", "functions.R"))
 
 # determine_group() and determine_proliferation_group()
-# NOTE: an earlier version of determine_group() took an expr_mat argument
-# and silently fell back to an MKI67-based split when too few normals were
-# present. That fallback was split out into a separate function
-# (determine_proliferation_group()) -- see review point 2 -- so the tests
-# below are rewritten to match the current, narrower signature and behavior.
 
 test_that("determine_group uses tumor vs normal when enough normals present", {
   sample_types <- c("01", "01", "01", "11", "11", "11")
