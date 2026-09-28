@@ -121,13 +121,7 @@ if (file.exists(immune_path)) {
     cor_test <- cor.test(merged$total_perMB, merged$`T.cell`, method = "spearman", exact = FALSE)
 
     # TMB is heavily right-skewed (POLE-ultramutated and MSI-H tumors), so plot
-    # it on a log axis. No fitted line: the reported statistic is Spearman
-    # (rank-based), and a linear regression line visually implies a linear
-    # relationship the test doesn't actually assess -- the two can disagree,
-    # e.g. a curved but monotonic relationship gives a strong Spearman rho
-    # but a poor-looking linear fit. (The subtype-level plot further down
-    # already omits a fitted line for exactly this reason; this brings the
-    # pooled plot in line with that same reasoning.)
+    # it on a log axis. 
     corr_plot <- ggplot(merged, aes(x = total_perMB, y = `T.cell`)) +
       geom_point(aes(color = hot_cold), alpha = 0.6) +
       scale_x_log10() +
@@ -201,11 +195,7 @@ if (file.exists(immune_path)) {
       write.csv(class_by_subtype, file.path(results_dir, "immune_class_by_subtype.csv"), row.names = FALSE)
 
       # One panel per assigned subtype, ordered by median TMB, with rho in the
-      # panel title. No fitted lines: a linear fit can be pulled by a few points
-      # and disagree with the rank-based statistic reported in the table.
-      # An asterisk flags subtypes with n < 20 -- still shown (n >= 10 is
-      # enough to compute a number), but a reader should weigh a rho from a
-      # small subtype more cautiously than one from a well-populated one.
+      # panel title. 
       plot_df <- merged_assigned %>% filter(molecular_subtype %in% subtype_cor$molecular_subtype)
       panel_labels <- setNames(
         paste0(subtype_cor$molecular_subtype, ifelse(subtype_cor$small_n_caution, "*", ""),
