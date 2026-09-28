@@ -95,10 +95,7 @@ assays(data) <- assays(data)[c("counts", setdiff(names(assays(data)), "counts"))
 dds <- DESeqDataSet(data, design = ~group)
 dds <- DESeq(dds)
 # Explicit contrast: positive log2FC = higher in test_level (tumor, or MKI67-high).
-# Significance tests H0: |log2FC| <= log2(1.5) directly, rather than testing
-# LFC = 0 and filtering on fold change afterwards. With hundreds of samples the
-# LFC = 0 test calls most expressed genes significant, so the threshold test is
-# the statistically meaningful one.
+# Significance tests H0: |log2FC| <= log2(1.5) directly
 contrast_vec <- c("group", test_level, ref_level)
 res <- results(dds, contrast = contrast_vec, alpha = alpha,
                lfcThreshold = lfc_threshold, altHypothesis = "greaterAbs")
@@ -149,20 +146,8 @@ message(
 )
 
 # 4b. Matched-pair sensitivity analysis (~patient + group)
-# The primary analysis above intentionally uses an UNPAIRED design
-# (design = ~group): it's the right choice for the primary result, since it
-# uses every available sample rather than only the smaller matched subset.
-# But select_one_sample_per_patient() allows the same patient to
-# contribute BOTH a tumor and a normal sample, and an unpaired model treats
-# those two observations as independent when they aren't -- a patient's own
-# tumor and normal samples are typically more similar to each other (shared
-# genetic background, handling, sometimes batch) than to another patient's
-# samples, which can understate standard errors under an unpaired model.
-#
-# Rather than switch the primary design (which would reduce power across
-# the WHOLE cohort to fix a concern that only affects the matched subset),
 # this fits a SEPARATE, secondary model on just the patients with both a
-# tumor and a normal sample, using design = ~patient + group -- which
+# tumor and a normal sample, using design = ~patient + group which
 # properly blocks on patient identity. If the primary analysis's top genes
 # are not artifacts of ignoring pairing, they should look similar here too.
 if (ref_level == "normal") {
@@ -231,9 +216,7 @@ rownames(vst_sym) <- rowData(dds)$gene_name
 vst_sym <- vst_sym[!is.na(rownames(vst_sym)), ]
 # When multiple Ensembl IDs map to the same gene symbol, keep the one with
 # the HIGHEST mean expression, not just whichever row happened to come
-# first. First-occurrence is arbitrary and can silently discard the more
-# biologically informative (more highly, more reliably detected) copy of a
-# gene in favor of a near-silent one that just happened to sort earlier.
+# first. 
 if (any(duplicated(rownames(vst_sym)))) {
   gene_mean_expr <- rowMeans(vst_sym)
   keep_idx <- tapply(seq_len(nrow(vst_sym)), rownames(vst_sym), function(idx) {
@@ -250,14 +233,9 @@ if (any(duplicated(rownames(vst_sym)))) {
 tumor_idx <- which(sample_type_code(colnames(dds)) == "01")
 
 # 5. Volcano plot
-# DESeq2 can return p-values of exactly 0, which become Inf on -log10 scale and
-# are silently dropped by ggplot, hiding the most significant genes.
 res_df$plot_p <- pmax(res_df$pvalue, .Machine$double.xmin)
 
-# x = the MLE fold change that the threshold test evaluates, so every colored
-# point lies outside the dashed lines. apeglm-shrunken values stay in the CSV:
-# lfcShrink works from the original counts (not DESeq2's outlier-replaced
-# counts), so for outlier-heavy genes it can differ from the tested estimate.
+# lfcShrink works from the original counts 
 volcano <- ggplot(res_df, aes(x = log2FoldChange, y = -log10(plot_p), color = change)) +
   geom_point(alpha = 0.6, size = 1) +
   geom_vline(xintercept = c(-lfc_threshold, lfc_threshold), linetype = "dashed", color = "grey40") +
@@ -525,7 +503,7 @@ if (!is.null(subtype_lookup) && nrow(significant_hspa) > 0) {
     inner_join(subtype_lookup, by = "patient_barcode")
 
   # Subtype labels come from the 2013 marker paper and cover only part of the
-  # cohort; "Not assigned" is a mixed group, not a subtype. Record coverage.
+  # cohort; "Not assigned" is a mixed group, not a subtype.
   subtype_coverage <- data.frame(
     tumors_analyzed = length(tumor_barcodes),
     matched_to_subtype_table = nrow(subtype_by_sample),
