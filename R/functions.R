@@ -2,7 +2,7 @@
 # Everything here depends only on base R, stats, and survival (a recommended
 # package shipped with R), so the test suite runs without Bioconductor.
 
-# TCGA barcode helpers ----------------------------------------------------
+# TCGA barcode helpers 
 
 #' Two-digit TCGA sample type code (e.g. "01" primary tumor, "11" solid normal)
 sample_type_code <- function(barcodes) substr(barcodes, 14, 15)
@@ -30,29 +30,14 @@ select_one_sample_per_patient <- function(barcodes, sample_codes = "01") {
   sort(idx[!duplicated(key)])
 }
 
-# Comparison groups -------------------------------------------------------
+# Comparison groups 
 
 #' Determine tumor vs. normal comparison groups
 #'
-#' Uses primary tumors ("01") and solid tissue normals ("11"); other sample
-#' types (recurrent, metastatic, ...) get NA so callers can drop them.
+#' Uses primary tumors ("01") and solid tissue normals ("11")
 #'
 #' Factor levels are set explicitly so the reference level is predictable:
 #' c("normal", "tumor").
-#'
-#' IMPORTANT: this function no longer silently substitutes a different
-#' comparison (MKI67-high/low) when too few normals are available. An
-#' earlier version did exactly that -- but "insufficient normal samples for
-#' tumor-vs-normal" and "I want a proliferation-based tumor-only split" are
-#' two independent, unrelated decisions, and conflating them meant a caller
-#' could get back a completely different biological comparison (proliferation
-#' status, not tumor-vs-normal) without any code-level signal that the
-#' question being answered had silently changed. If too few normals exist,
-#' this now returns all-NA with a clear warning, so callers see the failure
-#' explicitly rather than an unannounced change of analysis. If you want the
-#' proliferation-based split, call determine_proliferation_group() directly
-#' -- it's now a separate, deliberately-invoked function (see below), not an
-#' automatic fallback.
 #'
 #' @param sample_types character vector of TCGA sample type codes
 #' @param min_normal minimum number of normal samples required
@@ -78,13 +63,6 @@ determine_group <- function(sample_types, min_normal = 5) {
 
 #' Determine MKI67-high/low proliferation groups among primary tumors only
 #'
-#' A DELIBERATE, standalone analysis (not a fallback for anything) -- splits
-#' primary tumors by expression of a proliferation marker (default MKI67),
-#' at the median among tumors. This answers "which tumors are highly
-#' proliferative" -- a genuinely different question from tumor-vs-normal,
-#' and DE results from this split should be described as reflecting
-#' proliferation status, not general tumor biology.
-#'
 #' @param sample_types character vector of TCGA sample type codes
 #' @param expr_mat genes x samples matrix of depth-normalized expression,
 #'   gene symbols as rownames, columns aligned with sample_types
@@ -105,13 +83,9 @@ determine_proliferation_group <- function(sample_types, expr_mat, marker_gene = 
   factor(group, levels = c("low", "high"))
 }
 
-# Pathway enrichment ------------------------------------------------------
+# Pathway enrichment
 
 #' Build a named, sorted ranking vector for preranked GSEA keyed by gene symbol
-#'
-#' Gene set collections such as MSigDB Hallmark use gene symbols, so ranks must
-#' be named by symbol rather than Ensembl ID. When several Ensembl IDs map to
-#' one symbol, the entry with the largest |stat| is kept.
 #'
 #' @param res_df data frame with a gene_name column and a ranking statistic
 #' @param stat_col name of the ranking column (e.g. the Wald statistic)
@@ -204,18 +178,9 @@ get_hallmark_sets <- function(local_path,
   )
 }
 
-# Immune signatures -------------------------------------------------------
+# Immune signatures
 
 #' Score samples against marker gene sets via mean per-gene z-score
-#'
-#' Z-scores are relative to the samples passed in, so callers should pass a
-#' biologically coherent set (e.g. primary tumors only), not tumors + normals.
-#'
-#' A zero-variance gene (identical expression in every sample -- e.g. never
-#' detected) produces NaN from scale() for every sample; na.rm = TRUE below
-#' already prevents this from corrupting the per-sample mean (that one gene
-#' is just excluded from the average for genes that have it), but previously
-#' this happened silently with no record of it. Now reported via a message.
 #'
 #' @param log_counts genes x samples log-scale expression matrix (symbols as rownames)
 #' @param marker_sets named list of character vectors (gene symbols per signature)
@@ -249,7 +214,7 @@ score_immune_signatures <- function(log_counts, marker_sets) {
 
 #' Classify tumors as immune-hot / intermediate / immune-cold by score tertiles
 #'
-#' Uses a single inflammation score (e.g. the Ayers IFN-gamma signature) and
+#' Uses a single inflammation score from the Ayers IFN-gamma core signature and
 #' cohort tertiles, instead of comparing two differently-composed z-scores.
 #'
 #' @param score numeric vector of per-sample scores (NA allowed)
@@ -263,7 +228,7 @@ classify_immune_hot_cold <- function(score, probs = c(1 / 3, 2 / 3)) {
   factor(out, levels = c("Immune-cold", "Intermediate", "Immune-hot"))
 }
 
-# Survival ----------------------------------------------------------------
+# Survival 
 
 #' Build an analysis-ready survival data frame
 #'
@@ -334,11 +299,7 @@ pick_stage <- function(clinical,
 #' Log-rank test on the median split plus Cox models on continuous expression
 #'
 #' Also runs cox.zph() on each fitted Cox model to check the proportional
-#' hazards assumption -- previously absent. A Cox model's hazard ratio and
-#' p-value assume the covariate's effect is constant over time; if that
-#' assumption is violated (cox.zph global p < 0.05), the reported HR is an
-#' average over time that can be misleading, and this should be flagged
-#' alongside the estimate, not silently omitted.
+#' hazards assumption
 #'
 #' @param surv_df output of build_survival_data()
 #' @param stage_col optional name of a stage factor column for an adjusted Cox model
@@ -394,24 +355,17 @@ fit_survival_models <- function(surv_df, stage_col = NULL) {
   out
 }
 
-# Shared plotting constants ----------------------------------------------
+# Shared plotting constants 
 
 HOT_COLD_LEVELS <- c("Immune-cold", "Intermediate", "Immune-hot")
 HOT_COLD_COLORS <- c("Immune-cold" = "steelblue", "Intermediate" = "grey60", "Immune-hot" = "firebrick")
 
-#' Restore the immune class factor order (lost when round-tripping through CSV)
+#' Restore the immune class factor order
 as_hot_cold_factor <- function(x) factor(as.character(x), levels = HOT_COLD_LEVELS)
 
 # Molecular subtypes -----------------------------------------------------
 
 #' Pick patient and subtype columns from a TCGAquery_subtype() table
-#'
-#' Tries an explicit, known-good column name FIRST (if it's actually present
-#' in this table), falling back to auto-detection only if it isn't. An
-#' earlier version used auto-detection as the only mechanism -- convenient,
-#' and it does log which column it picked, but for a portfolio repo an
-#' explicit, reproducible default is preferable to "whichever column the
-#' regex happened to match this time."
 #'
 #' @param cols column names of the subtype table
 #' @param preferred_subtype_col the known column name to try first, e.g.
@@ -444,7 +398,7 @@ clean_subtype_labels <- function(x) {
 #'
 #' @param tumor_code TCGA code without prefix, e.g. "UCEC"
 #' @param fetcher function(tumor) returning the subtype table (injectable for tests)
-#' @param preferred_subtype_col explicit column name to try first -- see pick_subtype_columns()
+#' @param preferred_subtype_col explicit column name to try first 
 #' @return data.frame(patient_barcode, molecular_subtype) or NULL on failure
 load_subtype_lookup <- function(tumor_code, fetcher = NULL, preferred_subtype_col = "Subtype_Integrative") {
   if (is.null(fetcher)) fetcher <- function(tumor) TCGAbiolinks::TCGAquery_subtype(tumor = tumor)
