@@ -6,12 +6,14 @@ Differential expression, pathway enrichment, immune signature scoring, mutation 
 
 ## Pipeline
 
+- **Sample selection** — one primary tumor (`01`) and at most one solid tissue normal (`11`) per patient; recurrent/metastatic samples and duplicate aliquots are excluded
 - **Differential expression** — DESeq2, tumor vs. normal (or expression-based split for cohorts with too few normal samples)
 - **Pathway enrichment** — fgsea against MSigDB Hallmark gene sets
 - **Immune signature scoring** — marker-gene-based scoring across 9 immune/stromal populations
-- **Survival analysis** — Kaplan-Meier, stratified on the top DE gene
-- **Mutation analysis** — TMB, oncoplot, and TMB vs. immune signature correlation (maftools)
-- **Immune-hot/cold classification** — reuses the cell-type marker panel from my `scRNA-seq-analysis` repo to classify tumor immune context
+- **Survival analysis** — Kaplan-Meier, stratified on the top DE gene (exploratory)
+- **Mutation analysis** — TMB, oncoplot, and TMB vs. T cell signature correlation (maftools), pooled and within each molecular subtype, plus immune-class composition per subtype
+- **Immune-hot/cold classification** — tertiles of the Ayers 6-gene IFN-γ signature (hot / intermediate / cold), relative to the cohort
+- **Subtype comparisons** — significant HSPA genes by TCGA molecular subtype with Kruskal-Wallis tests (BH-corrected)
 - **HTML report** — knits all of the above into one document
 
 ## Quickstart
@@ -47,10 +49,16 @@ R/functions.R            # core logic, unit tested
 tests/                   # testthat unit tests
 ```
 
+## Gene sets
+
+`analysis.R` looks for `genesets/h.all.v2023.2.Hs.symbols.gmt` first. If it is missing, Hallmark sets are downloaded via `msigdbr` (with retries) and written to that path, with the msigdbr version in the GMT description column. Commit the file to pin the gene set version for future runs. Alternatively, download the Hallmark GMT (gene symbols) from [MSigDB](https://www.gsea-msigdb.org/gsea/msigdb/human/collections.jsp) and save it there.
+
 ## Notes
 
-- Default cohort is `TCGA-UCEC`; change the `project` variable in `analysis.R` to analyze a different one.
-- Immune signature scoring uses a lightweight marker-gene z-score approach rather than a dedicated deconvolution tool (xCell/ConsensusTME).
+- Default cohort is `TCGA-UCEC`; change the `project` variable in both `analysis.R` and `mutation_analysis.R` to analyze a different one.
+- Immune signature scoring uses a lightweight marker-gene z-score approach rather than a dedicated deconvolution tool (xCell/ConsensusTME). Scores and hot/cold classes are relative to the cohort analyzed.
+- Survival for the top DE gene is exploratory: being differentially expressed vs. normal tissue does not imply prognostic value. 
+- Molecular subtypes come from the 2013 TCGA marker paper and cover only part of the cohort. "Not assigned" tumors are a mixed group; they are shown (in grey) but excluded from subtype-level statistics.
 
 ## Data source
 
