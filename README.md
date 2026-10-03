@@ -10,9 +10,9 @@ Differential expression, pathway enrichment, immune signature scoring, mutation 
 - **Differential expression** — DESeq2, tumor vs. normal (or expression-based split for cohorts with too few normal samples)
 - **Pathway enrichment** — fgsea against MSigDB Hallmark gene sets
 - **Immune signature scoring** — marker-gene-based scoring across 9 immune/stromal populations
-- **Survival analysis** — Kaplan-Meier, stratified on the top DE gene (exploratory)
+- **Survival analysis** — Kaplan-Meier and Cox models (stage-adjusted when available), stratified on the top DE gene, with a proportional-hazards check
 - **Mutation analysis** — TMB, oncoplot, and TMB vs. T cell signature correlation (maftools), pooled and within each molecular subtype, plus immune-class composition per subtype
-- **Immune-hot/cold classification** — tertiles of the Ayers 6-gene IFN-γ signature (hot / intermediate / cold), relative to the cohort
+- **Immune-hot/cold classification** — tertiles (hot / intermediate / cold) of the Ayers 2017 IFN-γ signature
 - **Subtype comparisons** — significant HSPA genes by TCGA molecular subtype with Kruskal-Wallis tests (BH-corrected)
 - **HTML report** — knits all of the above into one document
 
