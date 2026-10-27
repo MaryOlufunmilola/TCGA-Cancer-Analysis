@@ -7,11 +7,6 @@ analysis, and survival analysis on public TCGA data, run here on endometrial can
 (TCGA-UCEC). Each module is one R script, the core logic lives in tested functions in
 `R/functions.R`, and `report.Rmd` combines the results into one HTML report.
 
-I wrote it to keep the parts of a TCGA analysis that are easy to get wrong in plain,
-tested code: choosing one sample per patient, keeping tumor vs. normal comparisons from
-quietly turning into something else, and checking whether a survival association holds
-up after adjusting for stage.
-
 ## Quick start
 
 ```bash
