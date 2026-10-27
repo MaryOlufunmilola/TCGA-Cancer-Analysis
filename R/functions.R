@@ -162,8 +162,16 @@ get_hallmark_sets <- function(local_path,
         } else {
           "remote"
         }
-        write_gmt(result, local_path, description = desc)
-        message("Cached gene sets to '", local_path, "' (", desc, "). Commit this file to pin the version.")
+        cached <- tryCatch({
+          suppressWarnings(write_gmt(result, local_path, description = desc))
+          TRUE
+        }, error = function(e) {
+          warning("Could not cache gene sets to '", local_path, "': ", conditionMessage(e), call. = FALSE)
+          FALSE
+        })
+        if (cached) {
+          message("Cached gene sets to '", local_path, "' (", desc, "). Commit this file to pin the version.")
+        }
       }
       return(result)
     }

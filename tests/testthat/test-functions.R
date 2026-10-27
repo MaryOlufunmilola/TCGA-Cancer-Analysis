@@ -196,6 +196,29 @@ test_that("get_hallmark_sets falls back to remote fetcher when local file absent
   unlink(tmp_gmt)
 })
 
+test_that("get_hallmark_sets still returns gene sets when caching fails", {
+  fake_remote <- function() list("FAKE_SET" = c("GENEX", "GENEY"))
+  blocker <- tempfile("not_a_dir_")
+  writeLines("", blocker)  # a file where a directory is needed, so writing fails
+  bad_path <- file.path(blocker, "hallmark.gmt")
+
+  expect_warning(
+    result <- get_hallmark_sets(bad_path, remote_fetcher = fake_remote),
+    "Could not cache"
+  )
+  expect_equal(result, list("FAKE_SET" = c("GENEX", "GENEY")))
+  unlink(blocker)
+})
+
+test_that("get_hallmark_sets does not write a file when cache = FALSE", {
+  fake_remote <- function() list("FAKE_SET" = c("GENEX", "GENEY"))
+  missing_path <- file.path(tempfile("genesets_"), "hallmark.gmt")
+
+  get_hallmark_sets(missing_path, remote_fetcher = fake_remote, cache = FALSE)
+
+  expect_false(file.exists(missing_path))
+})
+
 test_that("get_hallmark_sets retries on remote failure and eventually errors", {
   tmp_gmt <- tempfile(fileext = ".gmt")
   attempt_count <- 0
